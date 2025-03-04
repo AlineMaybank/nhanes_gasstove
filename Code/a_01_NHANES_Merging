@@ -1,0 +1,130 @@
+#a_01_NHANES_merging
+# Set working directory
+rm(list = ls())  # Clears all objects from the global environment
+
+setwd("/Users/alinemaybank/Desktop/NHANES project")
+getwd()
+
+# Install required packages if not installed
+install.packages("SASxport")
+library(foreign)
+install.packages("nhanesA")
+library(nhanesA)
+install.packages("dplyr")
+library(dplyr)
+
+#Read in data for 2013-2014
+VTQ_2013 <- read.xport("2013/VTQ_H 2013.xpt")
+#3489   24
+MCQ_2013 <- read.xport("2013/MCQ_H 2013.xpt")
+#9770   95
+DEMO_2013 <- read.xport("2013/DEMO_H.xpt")
+#10175    47
+HOQ_2013 <- read.xport("2013/HOQ_H 2013.xpt")
+#10175     3
+SMQSHS_2013 <- read.xport("2013/SMQSHS_H 2013.xpt")
+#10175    14
+SMQ_2013 <- read.xport("2013/SMQ_H 2013.xpt")
+#7168   32
+ECQ_2013 <- read.xport("2013/ECQ_H 2013.xpt")
+#3711   10
+BMX_2013 <- read.xport("2013/BMX_H 2013.xpt")
+#9813   26
+
+#Read in data for 2015-2016
+VTQ_I_2015 <- read.xport("2015/VTQ_I 2015.xpt")
+#3394   24
+MCQ_I_2015 <- read.xport("2015/MCQ_I 2015.xpt")
+#9575   90
+DEMO_I_2015 <- read.xport("2015/DEMO_I 2015.xpt")
+#9971   47
+HOQ_I_2015 <- read.xport("2015/HOQ_I 2015.xpt")
+#9971    3
+SMQSHS_I_2015 <- read.xport("2015/SMQSHS_I 2015.xpt")
+#9971   14
+SMQ_I_2015 <- read.xport("2015/SMQ_I 2015.xpt")
+#7001   42
+ECQ_I_2015 <- read.xport("2015/ECQ_I 2015.xpt")
+#3644   10
+BMX_I_2015 <- read.xport("2015/BMX_I 2015.xpt")
+
+#Read in data for 2017-2018
+VTQ_2017 <- read.xport("2017/VTQ_J 2017.xpt")
+#3172   23
+MCQ_2017 <- read.xport("2017/MCQ_J 2017.xpt")
+#8897   76
+DEMO_2017 <- read.xport("2017/DEMO_J.2017xpt")
+#9254   46
+HOQ_2017 <- read.xport("2017/HOQ_J 2017.xpt")
+#9254    3
+SMQSHS_2017 <- read.xport("2017/SMQSHS_J 2017.xpt")
+#9254   15
+SMQ_2017 <- read.xport("2017/SMQ_J 2017.xpt")
+#6724   37
+ECQ_2017 <- read.xport("2017/ECQ_J 2017.xpt")
+#3093   10
+BMX_2017 <- read.xport("2017/BMX_J 2017.xpt")
+#8704   21
+
+#MERGE DATA
+# Define merge function
+merge_nhanes_cycle <- function(..., year_label) {
+  datasets <- list(...)
+  
+  # Ensure all datasets contain SEQN
+  datasets <- lapply(datasets, function(df) {
+    if (!"SEQN" %in% colnames(df)) stop("SEQN missing in dataset")
+    return(df)
+  })
+  
+  # Merge all datasets by SEQN
+  merged_cycle <- Reduce(function(x, y) merge(x, y, by = "SEQN", all = TRUE), datasets)
+  
+  # Add a YEAR column to track dataset origin
+  merged_cycle$YEAR <- year_label
+  
+  return(merged_cycle)
+}
+
+# Merge each NHANES cycle separately
+nhanes_2013_2014 <- merge_nhanes_cycle(VTQ_2013, MCQ_2013, DEMO_2013, HOQ_2013, 
+                                       SMQSHS_2013, SMQ_2013, ECQ_2013, BMX_2013, 
+                                       year_label = "2013-2014")
+
+nhanes_2015_2016 <- merge_nhanes_cycle(VTQ_I_2015, MCQ_I_2015, DEMO_I_2015, HOQ_I_2015, 
+                                       SMQSHS_I_2015, SMQ_I_2015, ECQ_I_2015, BMX_I_2015, 
+                                       year_label = "2015-2016")
+
+nhanes_2017_2018 <- merge_nhanes_cycle(VTQ_2017, MCQ_2017, DEMO_2017, HOQ_2017, 
+                                       SMQSHS_2017, SMQ_2017, ECQ_2017, BMX_2017, 
+                                       year_label = "2017-2018")
+
+#Export merged yearly data files
+write.csv(nhanes_2013_2014, "nhanes_2013_2014.csv", row.names = FALSE)
+write.csv(nhanes_2015_2016, "nhanes_2015_2016.csv", row.names = FALSE)
+write.csv(nhanes_2017_2018, "nhanes_2017_2018.csv", row.names = FALSE)
+
+### **Step 3: Merge All Cycles Together**
+# Ensure dplyr is loaded
+library(dplyr)
+
+# Merge all datasets while keeping all variables (union of columns)
+nhanes_combined <- full_join(
+  full_join(nhanes_2013_2014, nhanes_2015_2016, by = "SEQN"), 
+  nhanes_2017_2018, by = "SEQN")
+
+# Check new dimensions
+dim(nhanes_combined)
+#29400   718
+
+# Check for duplicate SEQNs (some participants could have been surveyed multiple times)
+duplicate_seqns <- nhanes_combined %>% 
+  group_by(SEQN) %>% 
+  summarise(n = n()) %>% 
+  filter(n > 1)
+
+print(nrow(duplicate_seqns))  # If >0, some SEQNs appear multiple times
+#0
+
+# Save the final dataset
+write.csv(nhanes_combined, "nhanes_combined.csv", row.names = FALSE)
