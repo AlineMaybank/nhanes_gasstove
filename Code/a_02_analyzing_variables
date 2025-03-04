@@ -1,0 +1,91 @@
+#a_02_analyzing_variables
+
+getwd()
+#/Users/alinemaybank/Desktop/NHANES project
+
+#Read in merged dataset
+nhanes_combined= read.csv("nhanes_combined.csv")
+
+#CLEAN DATA - Gas Stoves (VTQ241A=1=Yes)
+# Check unique values for VTQ241A to confirm coding (e.g., 1 = Yes, 2 = No)
+table(nhanes_combined$VTQ241A, useNA = "ifany")
+#    1     2     9  <NA> 
+#   606   2156    6  26632
+
+# Filter dataset to only include those who answered "Yes" to VTQ241A
+nhanes_gas_stove <- nhanes_combined %>% 
+  filter(VTQ241A == 1)
+
+# Check new dimensions
+dim(nhanes_gas_stove)
+#606 718
+
+# Filter dataset to only include those who answered "No" to VTQ241A
+nhanes_no_gas_stove <- nhanes_combined %>% 
+  filter(VTQ241A == 2)
+
+# Check new dimensions
+dim(nhanes_no_gas_stove)
+#2156  718
+
+#Now, include AGE (Kids) and GAS STOVE
+# Filter for children aged 12-17 years old
+kids_gas_stove <- nhanes_combined %>%
+  filter(RIDAGEYR >= 12 & RIDAGEYR <= 17, VTQ241A == 1)
+#44 x 718
+
+kids_no_gas_stove <- nhanes_combined %>%
+  filter(RIDAGEYR >= 12 & RIDAGEYR <= 17, VTQ241A == 2)
+#299 x 718
+
+# Get counts
+num_kids_gas_stove <- nrow(kids_gas_stove)
+num_kids_no_gas_stove <- nrow(kids_no_gas_stove)
+
+# Print results
+cat("Number of kids (12-17 years) with gas stove:", num_kids_gas_stove, "\n")
+#Number of kids (12-17 years) with gas stove: 44
+cat("Number of kids (12-17 years) without gas stove:", num_kids_no_gas_stove, "\n")
+#Number of kids (12-17 years) without gas stove: 299 
+
+#AGE (Adults) and GAS STOVE
+# Filter for adults aged 18-64 who answered Yes (1) or No (2) to VTQ241A
+adults_gas_stove <- nhanes_combined %>%
+  filter(RIDAGEYR >= 18 & RIDAGEYR <= 64, VTQ241A %in% c(1, 2))
+
+# Count by Gender (RIAGENDR: 1 = Male, 2 = Female) and Gas Stove Use
+adult_gas_stove_counts <- adults_gas_stove %>%
+  group_by(RIAGENDR, VTQ241A) %>%
+  summarise(count = n(), .groups = "drop")
+
+# Print results
+print(adult_gas_stove_counts)
+
+# Optional: Create a table for better visualization
+table(adults_gas_stove$RIAGENDR, adults_gas_stove$VTQ241A)
+
+#Looking at
+#Children with complete covariates =
+# Define covariates (children & adults have different BMI variables)
+covariates_children <- c("SMQ040", "SMQ876", "ECQ020", "BMCBMIC", "VTQ241A")
+covariates_adults <- c("SMQ040", "SMQ876", "ECQ020", "BMXBMI", "VTQ241A")
+
+# Filter for children (12-17) with complete covariates
+#didnt work cause i dont have the BMCBMIC variable
+children_complete <- nhanes_combined %>%
+  filter(RIDAGEYR >= 12 & RIDAGEYR <= 17, VTQ241A %in% c(1, 2)) %>%
+  filter(complete.cases(select(., all_of(covariates_children))))
+
+# Filter for adults (18-64) with complete covariates
+adults_complete <- nhanes_combined %>%
+  filter(RIDAGEYR >= 18 & RIDAGEYR <= 64, VTQ241A %in% c(1, 2)) %>%
+  filter(complete.cases(select(., all_of(covariates_adults))))
+
+# Get counts
+num_children_complete <- nrow(children_complete)
+num_adults_complete <- nrow(adults_complete)
+
+# Print results
+cat("Children with complete covariates:", num_children_complete, "\n")
+cat("Adults with complete covariates:", num_adults_complete, "\n") =0
+#Adults with complete covariates:0
