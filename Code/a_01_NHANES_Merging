@@ -1,4 +1,5 @@
 #a_01_NHANES_merging
+
 # Set working directory
 rm(list = ls())  # Clears all objects from the global environment
 
@@ -12,6 +13,7 @@ install.packages("nhanesA")
 library(nhanesA)
 install.packages("dplyr")
 library(dplyr)
+ hellow
 
 #Read in data for 2013-2014
 VTQ_2013 <- read.xport("2013/VTQ_H 2013.xpt")
@@ -105,26 +107,97 @@ write.csv(nhanes_2015_2016, "nhanes_2015_2016.csv", row.names = FALSE)
 write.csv(nhanes_2017_2018, "nhanes_2017_2018.csv", row.names = FALSE)
 
 ### **Step 3: Merge All Cycles Together**
+
+
 # Ensure dplyr is loaded
+# Load required libraries
 library(dplyr)
 
-# Merge all datasets while keeping all variables (union of columns)
-nhanes_combined <- full_join(
-  full_join(nhanes_2013_2014, nhanes_2015_2016, by = "SEQN"), 
-  nhanes_2017_2018, by = "SEQN")
+# Set working directory (modify if necessary)
+setwd("/Users/alinemaybank/Desktop/NHANES project")
 
-# Check new dimensions
-dim(nhanes_combined)
-#29400   718
+# Read in NHANES datasets
+nhanes_2013_2014 <- read.csv("nhanes_2013_2014.csv")
+nhanes_2015_2016 <- read.csv("nhanes_2015_2016.csv")
+nhanes_2017_2018 <- read.csv("nhanes_2017_2018.csv")
 
-# Check for duplicate SEQNs (some participants could have been surveyed multiple times)
-duplicate_seqns <- nhanes_combined %>% 
-  group_by(SEQN) %>% 
-  summarise(n = n()) %>% 
-  filter(n > 1)
+# Add a YEAR column to each dataset
+nhanes_2013_2014$YEAR <- "2013-2014"
+nhanes_2015_2016$YEAR <- "2015-2016"
+nhanes_2017_2018$YEAR <- "2017-2018"
 
-print(nrow(duplicate_seqns))  # If >0, some SEQNs appear multiple times
-#0
+# Combine datasets using bind_rows() (stacking)
+merged_nhanes_all <- bind_rows(nhanes_2013_2014, nhanes_2015_2016, nhanes_2017_2018)
 
-# Save the final dataset
-write.csv(nhanes_combined, "nhanes_combined.csv", row.names = FALSE)
+# Verify structure
+dim(merged_nhanes_all)  # Check rows and columns
+observations= 29400 
+rows= 312
+length(unique(merged_nhanes_all$SEQN))  # Ensure most SEQN values are unique
+observations=29400
+
+colnames(merged_nhanes_all)  # View all column names
+# [1] "SEQN"     "WTSVOC2Y" "VTQ210"   "VTQ220"   "VTQ200A"  "VTQ231A"  "VTQ241A"  "VTQ241B"  "VTQ244A"  "VTQ244B" 
+#[11] "VTQ251A"  "VTQ251B"  "VTQ261A"  "VTQ261B"  "VTQ265A"  "VTQ265B"  "VTQ271A"  "VTQ271B"  "VTQ281A"  "VTQ281B" 
+#[21] "VTQ281C"  "VTQ281D"  "VTQ281E"  "VTQ281F"  "MCQ010"   "MCQ025"   "MCQ035"   "MCQ040"   "MCQ050"   "AGQ030"  
+#[31] "MCQ053"   "MCQ070"   "MCQ075"   "MCQ080"   "MCQ082"   "MCQ084"   "MCQ086"   "MCQ092"   "MCD093"   "MCQ149"  
+#[41] "MCQ151"   "MCQ160A"  "MCQ180A"  "MCQ195"   "MCQ160N"  "MCQ180N"  "MCQ160B"  "MCQ180B"  "MCQ160C"  "MCQ180C" 
+#[51] "MCQ160D"  "MCQ180D"  "MCQ160E"  "MCQ180E"  "MCQ160F"  "MCQ180F"  "MCQ160G"  "MCQ180G"  "MCQ160M"  "MCQ170M" 
+#[61] "MCQ180M"  "MCQ160K"  "MCQ170K"  "MCQ180K"  "MCQ160L"  "MCQ170L"  "MCQ180L"  "MCQ160O"  "MCQ203"   "MCQ206"  
+#[71] "MCQ220"   "MCQ230A"  "MCQ230B"  "MCQ230C"  "MCQ230D"  "MCQ240A"  "MCQ240AA" "MCQ240B"  "MCQ240BB" "MCQ240C" 
+#[81] "MCQ240CC" "MCQ240D"  "MCQ240DD" "MCQ240DK" "MCQ240E"  "MCQ240F"  "MCQ240G"  "MCQ240H"  "MCQ240I"  "MCQ240J" 
+#[91] "MCQ240K"  "MCQ240L"  "MCQ240M"  "MCQ240N"  "MCQ240O"  "MCQ240P"  "MCQ240Q"  "MCQ240R"  "MCQ240S"  "MCQ240T" 
+#[101] "MCQ240U"  "MCQ240V"  "MCQ240W"  "MCQ240X"  "MCQ240Y"  "MCQ240Z"  "MCQ300A"  "MCQ300B"  "MCQ300C"  "MCQ365A" 
+#[111] "MCQ365B"  "MCQ365C"  "MCQ365D"  "MCQ370A"  "MCQ370B"  "MCQ370C"  "MCQ370D"  "MCQ380"   "SDDSRVYR" "RIDSTATR"
+#[121] "RIAGENDR" "RIDAGEYR" "RIDAGEMN" "RIDRETH1" "RIDRETH3" "RIDEXMON" "RIDEXAGM" "DMQMILIZ" "DMQADFC"  "DMDBORN4"
+#[131] "DMDCITZN" "DMDYRSUS" "DMDEDUC3" "DMDEDUC2" "DMDMARTL" "RIDEXPRG" "SIALANG"  "SIAPROXY" "SIAINTRP" "FIALANG" 
+#[141] "FIAPROXY" "FIAINTRP" "MIALANG"  "MIAPROXY" "MIAINTRP" "AIALANGA" "DMDHHSIZ" "DMDFMSIZ" "DMDHHSZA" "DMDHHSZB"
+#[151] "DMDHHSZE" "DMDHRGND" "DMDHRAGE" "DMDHRBR4" "DMDHREDU" "DMDHRMAR" "DMDHSEDU" "WTINT2YR" "WTMEC2YR" "SDMVPSU" 
+#[161] "SDMVSTRA" "INDHHIN2" "INDFMIN2" "INDFMPIR" "HOD050"   "HOQ065"   "SMD460"   "SMD470"   "SMD480"   "SMQ020"  
+#[171] "SMD030"   "SMQ040"   "SMQ050Q"  "SMQ050U"  "SMD055"   "SMD057"   "SMQ078"   "SMD641"   "SMD650"   "SMD093"  
+#[181] "SMDUPCA"  "SMD100BR" "SMD100FL" "SMD100MN" "SMD100LN" "SMD100TR" "SMD100NI" "SMD100CO" "SMQ621"   "SMD630"  
+#[191] "SMQ661"   "SMQ665A"  "SMQ665B"  "SMQ665C"  "SMQ665D"  "SMQ670"   "SMQ848"   "SMQ852Q"  "SMQ852U"  "SMAQUEX2"
+#[201] "ECD010"   "ECQ020"   "ECD070A"  "ECD070B"  "ECQ080"   "ECQ090"   "WHQ030E"  "MCQ080E"  "ECQ150"   "BMDSTATS"
+#[211] "BMXWT"    "BMIWT"    "BMXRECUM" "BMIRECUM" "BMXHEAD"  "BMIHEAD"  "BMXHT"    "BMIHT"    "BMXBMI"   "BMDBMIC" 
+#[221] "BMXLEG"   "BMILEG"   "BMXARML"  "BMIARML"  "BMXARMC"  "BMIARMC"  "BMXWAIST" "BMIWAIST" "BMXSAD1"  "BMXSAD2" 
+#[231] "BMXSAD3"  "BMXSAD4"  "BMDAVSAD" "BMDSADCM" "YEAR"     "VTQ233A"  "VTQ233B"  "VTD241B"  "VTD244B"  "VTD251B" 
+#[241] "VTD261B"  "VTD271B"  "VTD281B"  "VTD281D"  "VTD281F"  "OSQ230"   "SMQ856"   "SMQ858"   "SMQ860"   "SMQ862"  
+#[251] "SMQ866"   "SMQ868"   "SMQ870"   "SMQ872"   "SMQ874"   "SMQ876"   "SMQ878"   "SMQ880"   "SMAQUEX"  "SMQ925"  
+#[261] "SMQ930"   "SMQ935"   "SMQ080"   "SMQ890"   "SMQ895"   "SMQ900"   "SMQ905"   "SMQ910"   "SMQ915"   "RHD018"  
+#[271] "MCD180A"  "MCD180N"  "MCD180B"  "MCD180C"  "MCD180D"  "MCD180E"  "MCD180F"  "MCD180M"  "MCD180G"  "MCD180K" 
+#[281] "MCD180L"  "MCQ500"   "MCQ510A"  "MCQ510B"  "MCQ510C"  "MCQ510D"  "MCQ510E"  "MCQ510F"  "MCQ520"   "MCQ530"  
+#[291] "MCQ540"   "MCQ550"   "MCQ560"   "MCQ570"   "MCD240A"  "MCD240B"  "MCD240C"  "MCQ366A"  "MCQ366B"  "MCQ366C" 
+#[301] "MCQ366D"  "MCQ371A"  "MCQ371B"  "MCQ371C"  "MCQ371D"  "DMDHRAGZ" "DMDHREDZ" "DMDHRMAZ" "DMDHSEDZ" "SMQ940"  
+#[311] "BMXHIP"   "BMIHIP"
+
+#View extra columns in 2015-2016
+setdiff(names(nhanes_2015_2016), names(nhanes_2013_2014))
+# [1] "VTQ233A" "VTQ233B" "VTD241B" "VTD244B" "VTD251B" "VTD261B" "VTD271B" "VTD281B" "VTD281D" "VTD281F" "OSQ230" 
+#[12] "SMQ856"  "SMQ858"  "SMQ860"  "SMQ862"  "SMQ866"  "SMQ868"  "SMQ870"  "SMQ872"  "SMQ874"  "SMQ876"  "SMQ878" 
+#[23] "SMQ880"  "SMAQUEX" "SMQ925"  "SMQ930"  "SMQ935"  "SMQ080"  "SMQ890"  "SMQ895"  "SMQ900"  "SMQ905"  "SMQ910" 
+#[34] "SMQ915" 
+
+#View extra columns in 2017-2018
+setdiff(names(nhanes_2017_2018), names(nhanes_2015_2016))  
+#[1] "RHD018"   "MCD180A"  "MCD180N"  "MCD180B"  "MCD180C"  "MCD180D"  "MCD180E"  "MCD180F"  "MCD180M"  "MCD180G" 
+#[11] "MCD180K"  "MCD180L"  "MCQ500"   "MCQ510A"  "MCQ510B"  "MCQ510C"  "MCQ510D"  "MCQ510E"  "MCQ510F"  "MCQ520"  
+#[21] "MCQ530"   "MCQ540"   "MCQ550"   "MCQ560"   "MCQ570"   "MCD240A"  "MCD240B"  "MCD240C"  "MCQ366A"  "MCQ366B" 
+#[31] "MCQ366C"  "MCQ366D"  "MCQ371A"  "MCQ371B"  "MCQ371C"  "MCQ371D"  "DMDHRAGZ" "DMDHREDZ" "DMDHRMAZ" "DMDHSEDZ"
+#[41] "SMQ940"   "BMXHIP"   "BMIHIP"
+
+#Check to see if any SEQN are repeated
+# Count how many times each SEQN appears across all cycles
+all_seqn <- c(nhanes_2013_2014$SEQN, nhanes_2015_2016$SEQN, nhanes_2017_2018$SEQN)
+duplicated_seqn <- all_seqn[duplicated(all_seqn)]  # Identify SEQNs that appear more than once
+
+# Print unique SEQNs that appear in more than one dataset
+unique(duplicated_seqn)
+numeric(0)
+#There are no repeated SEQN throughout the datasets
+
+#Double-check that the Year column exists in the final merged dataset
+"YEAR" %in% colnames(merged_nhanes_all)  # Should return TRUE if the column exists
+#True - it exists
+
+# Save the merged dataset
+write.csv(merged_nhanes_all, "merged_nhanes_all.csv", row.names = FALSE)
