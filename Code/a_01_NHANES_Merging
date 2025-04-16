@@ -201,3 +201,5 @@ numeric(0)
 
 # Save the merged dataset
 write.csv(merged_nhanes_all, "merged_nhanes_all.csv", row.names = FALSE)
+saveRDS(merged_nhanes_all, "merged_nhanes_all.rds")
+
