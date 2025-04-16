@@ -85,3 +85,18 @@ num_adults_complete <- nrow(subset_adults_complete)
 num_adults_complete
 #0
 #-------------------------------------------------------------------------
+#NEED TO ADD IN MORE Datasets for this
+#serum cotinine levels (LBXCOT) check
+cotinine_check <- merged_nhanes_all %>%
+  filter(!is.na(SMQ876), !is.na(LBXCOT)) %>%
+  mutate(SMQ876 = factor(SMQ876, labels = c("No", "Yes")))
+
+#Calculate unweighted medians
+cotinine_check %>%
+  group_by(SMQ876) %>%
+  summarise(
+    n = n(),
+    median_cotinine = median(LBXCOT, na.rm = TRUE),
+    IQR = IQR(LBXCOT, na.rm = TRUE),
+    min = min(LBXCOT, na.rm = TRUE),
+    max = max(LBXCOT, na.rm = TRUE))
