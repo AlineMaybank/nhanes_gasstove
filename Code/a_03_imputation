@@ -7,7 +7,9 @@
 install.packages("missForest")
 library(missForest)
 
-#Define variable list for imputation
+### -------------------------------------------
+# Step 1: Define Variables for Imputation
+### -------------------------------------------
 vars_to_impute_adults <- c(
   "VTQ241A",   # Gas stove use
   "MCQ035",    # Still have asthma
@@ -18,44 +20,49 @@ vars_to_impute_adults <- c(
   "RIDAGEYR",  # Age
   "RIAGENDR",  # Sex
   "RIDRETH3",  # Race/ethnicity
-  "INDHHIN2",  # Income (to be recoded into poverty5cat)
-  "HOQ065"     # Housing tenure
+  "INDHHIN2",  # Income
+  "HOQ065"     # Housing
 )
 
-#Create imputation dataset
+### -------------------------------------------
+# Step 2: Subset to Adults (18–64) and Prepare for Imputation
+### -------------------------------------------
 subset_adults_for_impute <- merged_nhanes_all %>%
   filter(RIDAGEYR >= 18 & RIDAGEYR < 65) %>%
   select(all_of(vars_to_impute_adults)) %>%
   as.data.frame()
 
-#Run the imputation
+### -------------------------------------------
+# Step 3: Run missForest Imputation
+### -------------------------------------------
+library(missForest)
 set.seed(123)  # For reproducibility
+
 imputation_model_rf <- missForest(subset_adults_for_impute)
+imputed_adults_df <- imputation_model_rf$ximp  # Extract imputed data
 
-### Question - Do I add the imputed data back to the original dataframe?
-#i did (below)
-#Extract Imputed dataframe
-imputed_adults_df <- imputation_model_rf$ximp
-
-#Add back identifiers and survey design variables
+### -------------------------------------------
+# Step 4: Add Back Identifiers & Survey Design Variables
+### -------------------------------------------
 adult_ids <- merged_nhanes_all %>%
   filter(RIDAGEYR >= 18 & RIDAGEYR < 65) %>%
-  select(SEQN, SDMVPSU, SDMVSTRA, WTMEC2YR, YEAR)
+  select(SEQN, SDMVPSU, SDMVSTRA, WTMEC2YR, WTSVOC2Y, YEAR) 
+
 
 imputed_adults_full <- bind_cols(adult_ids, imputed_adults_df)
 
-#Check if missingness is gone
-#Missingness before vs after imputation
-# Before imputation
-colSums(is.na(subset_adults_for_impute))
-#VTQ241A   MCQ035   MCQ050   SMQ040   SMQ876   BMXBMI RIDAGEYR RIAGENDR RIDRETH3 INDHHIN2 
-#8022    11581    12516     8485     9521      692        0        0        0      506 
-#HOQ065 
-#480
+### -------------------------------------------
+# Step 5: Merge Imputed Values into Full Dataset
+### -------------------------------------------
+# Define variables being replaced by imputation
+vars_to_replace <- c("VTQ241A", "MCQ035", "MCQ050", "SMQ040", "SMQ876", 
+                     "BMXBMI", "RIDAGEYR", "RIAGENDR", "RIDRETH3", 
+                     "INDHHIN2", "HOQ065")
 
-# After imputation
-colSums(is.na(imputed_adults_df))
-# VTQ241A   MCQ035   MCQ050   SMQ040   SMQ876   BMXBMI RIDAGEYR RIAGENDR RIDRETH3 INDHHIN2 
-#0        0        0        0        0        0        0        0        0        0 
-#HOQ065 
-#0 
+# Drop old versions of those variables from full dataset
+nhanes_all_clean <- merged_nhanes_all %>%
+  select(-all_of(vars_to_replace))
+
+# Join imputed values back into full dataset by SEQN
+nhanes_all_imputed <- nhanes_all_clean %>%
+  left_join(imputed_adults_full, by = "SEQN")
