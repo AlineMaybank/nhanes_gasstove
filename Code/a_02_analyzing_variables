@@ -100,3 +100,8 @@ cotinine_check %>%
     IQR = IQR(LBXCOT, na.rm = TRUE),
     min = min(LBXCOT, na.rm = TRUE),
     max = max(LBXCOT, na.rm = TRUE))
+
+#-------------------------------------------------------------------------
+#Check for missing variables for RIDRETH3 (the race/ethnicity variable)
+table(is.na(merged_nhanes_all$RIDRETH3))
+#no missing
