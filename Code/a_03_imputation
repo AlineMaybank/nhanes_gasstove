@@ -1,68 +1,67 @@
 #a_03_imputation
 
 ### ------------------------------------------------------------------------
-# Imputation
-###------------------------------------------------------------------------
-#Packages
-install.packages("missForest")
-library(missForest)
+# a_03_imputation.R - MICE-based multiple imputation (for adults 18+ w/ asthma)
+### ------------------------------------------------------------------------
+
+# Load packages
+library(dplyr)
+library(mice)
+library(tidyr)
 
 ### -------------------------------------------
 # Step 1: Define Variables for Imputation
 ### -------------------------------------------
 vars_to_impute_adults <- c(
   "VTQ241A",   # Gas stove use
-  "MCQ035",    # Still have asthma
   "MCQ050",    # ER visit
-  "SMQ040",    # Current smoker
-  "SMQ876",    # Secondhand smoke
-  "BMXBMI",    # BMI (continuous)
   "RIDAGEYR",  # Age
   "RIAGENDR",  # Sex
   "RIDRETH3",  # Race/ethnicity
-  "INDHHIN2",  # Income
+  "INDFMPIR",  # Income
   "HOQ065"     # Housing
 )
 
+id_vars <- c("SEQN", "SDMVPSU", "SDMVSTRA", "WTMEC2YR", "WTSVOC2Y", "YEAR")
+
 ### -------------------------------------------
-# Step 2: Subset to Adults (18–64) and Prepare for Imputation
+# Step 2: Filter to Adults (18+) WITH Asthma Diagnosis
 ### -------------------------------------------
 subset_adults_for_impute <- merged_nhanes_all %>%
-  filter(RIDAGEYR >= 18 & RIDAGEYR < 65) %>%
-  select(all_of(vars_to_impute_adults)) %>%
-  as.data.frame()
+  filter(RIDAGEYR >= 18, MCQ035 == 1) %>%  # keep only adults with asthma
+  select(all_of(c(id_vars, vars_to_impute_adults)))
 
 ### -------------------------------------------
-# Step 3: Run missForest Imputation
+# Step 3: Run MICE Multiple Imputation
 ### -------------------------------------------
-library(missForest)
-set.seed(123)  # For reproducibility
+# Specify number of imputations (can increase from 5 if desired)
+set.seed(123)
+imp_mice <- mice(subset_adults_for_impute[, vars_to_impute_adults], 
+                 m = 5, method = "pmm", seed = 123)
 
-imputation_model_rf <- missForest(subset_adults_for_impute)
-imputed_adults_df <- imputation_model_rf$ximp  # Extract imputed data
-
-### -------------------------------------------
-# Step 4: Add Back Identifiers & Survey Design Variables
-### -------------------------------------------
-adult_ids <- merged_nhanes_all %>%
-  filter(RIDAGEYR >= 18 & RIDAGEYR < 65) %>%
-  select(SEQN, SDMVPSU, SDMVSTRA, WTMEC2YR, WTSVOC2Y, YEAR) 
-
-
-imputed_adults_full <- bind_cols(adult_ids, imputed_adults_df)
 
 ### -------------------------------------------
-# Step 5: Merge Imputed Values into Full Dataset
+# Step 4: Extract Long-format Imputed Data (with identifiers added back)
 ### -------------------------------------------
-# Define variables being replaced by imputation
-vars_to_replace <- c("VTQ241A", "MCQ035", "MCQ050", "SMQ040", "SMQ876", 
-                     "BMXBMI", "RIDAGEYR", "RIAGENDR", "RIDRETH3", 
-                     "INDHHIN2", "HOQ065")
+# Extract imputed datasets in long format
+imputed_long <- complete(imp_mice, "long", include = TRUE)
 
-# Drop old versions of those variables from full dataset
-nhanes_all_clean <- merged_nhanes_all %>%
-  select(-all_of(vars_to_replace))
+# Bind back IDs using row order match (mice preserves row order)
+id_df <- subset_adults_for_impute[, id_vars]
+imputed_long <- bind_cols(
+  imputed_long %>% select(.imp, .id),
+  id_df[imputed_long$.id, ],  # match IDs
+  imputed_long %>% select(-.imp, -.id)
+)
 
-# Join imputed values back into full dataset by SEQN
-nhanes_all_imputed <- nhanes_all_clean %>%
-  left_join(imputed_adults_full, by = "SEQN")
+#Save imputed_long as RDS for future use
+saveRDS(nhanes_all_imputed, "imputed_adults_asthma.rds")
+
+
+### -------------------------------------------
+
+# Script Summary:
+# Done: imputed_long contains 5 imputations (variable .imp = 1 to 5)
+# Each row is one imputed observation (stacked format)
+# Use `mice::complete(imp_mice, 1)` to extract single imputation (wide format)
+### -------------------------------------------
