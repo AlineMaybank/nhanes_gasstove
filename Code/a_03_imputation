@@ -31,6 +31,41 @@ subset_adults_for_impute <- merged_nhanes_all %>%
   filter(RIDAGEYR >= 18, MCQ035 == 1) %>%  # keep only adults with asthma
   select(all_of(c(id_vars, vars_to_impute_adults)))
 
+#Check-point:
+#Diagnose Missingness and Non-Binary Values
+# Count missing values per variable
+missing_summary <- subset_adults_for_impute %>%
+  summarise(across(everything(), ~sum(is.na(.)), .names = "missing_{.col}"))
+
+# For binary yes/no variables, check for values other than 1 or 2
+# Assuming VTQ241A and MCQ050 are yes/no variables (check others if needed)
+non_binary_summary <- subset_adults_for_impute %>%
+  summarise(
+    VTQ241A_non_binary = sum(!(VTQ241A %in% c(1, 2)) & !is.na(VTQ241A)),
+    MCQ050_non_binary = sum(!(MCQ050 %in% c(1, 2)) & !is.na(MCQ050))
+  )
+
+# View results
+print(missing_summary)
+#  missing_SEQN missing_SDMVPSU missing_SDMVSTRA missing_WTMEC2YR missing_WTSVOC2Y missing_YEAR
+#            0               0                0                0              828            0
+#missing_VTQ241A missing_MCQ050 missing_RIDAGEYR missing_RIAGENDR missing_RIDRETH3
+#             907              0                0                0                0
+#missing_INDFMPIR missing_HOQ065
+#              157             51
+
+print(non_binary_summary)
+#  VTQ241A_non_binary MCQ050_non_binary
+#                  1                 1
+
+#Replace non-binary with NAs
+subset_adults_for_impute <- subset_adults_for_impute %>%
+  mutate(
+    VTQ241A = ifelse(VTQ241A %in% c(1, 2), VTQ241A, NA),
+    MCQ050  = ifelse(MCQ050  %in% c(1, 2), MCQ050, NA)
+  )
+
+
 ### -------------------------------------------
 # Step 3: Run MICE Multiple Imputation
 ### -------------------------------------------
@@ -55,7 +90,7 @@ imputed_long <- bind_cols(
 )
 
 #Save imputed_long as RDS for future use
-saveRDS(nhanes_all_imputed, "imputed_adults_asthma.rds")
+saveRDS(imputed_long, "imputed_adults_asthma.rds")
 
 
 ### -------------------------------------------
