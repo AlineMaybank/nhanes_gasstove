@@ -1,14 +1,11 @@
 #a_04_weights_and_model
 
-#Practice doing weights
 #Information
-#Population: Adults (≥18 years old)
+#Population: Adults (≥18 years old) + MCQ035 (Still have asthma)
 #Exposure: VTQ241A (Gas stove use in last 48h)
-#Outcome: MCQ035 (Still have asthma)
 #Covariates: SMQ040, SMQ876, and BMXBMI
-#Weights: Use WTMEC2YR
-#Cycles: 2013–2018 (3 cycles) → create a 6-year weight: WTMEC6YR = WTMEC2YR / 3
-#Survey design: Use survey package
+#Weight: WTSVOC2Y → create 6-year VOC weight (WTSVOC6YR)
+#Cycles: 2013–2018 (3 cycles) → create a 6-year weight: ...6YR = ...2YR / 3
 #Goal: Descriptive stats + weighted chi-square tests
 
 # Load required packages
@@ -17,547 +14,194 @@ library(survey)
 library(haven)
 install.packages("broom")
 library(broom)
+install.packages("gtsummary")
+library(gtsummary)
+
+
+# Load imputed dataset (from a_03)
+nhanes_all_imputed <- readRDS("imputed_adults_asthma_single.rds")
+#1617 obvs x 17 variables
 
 ### ------------------------------------------
-# Recode the Variables
+# Re-code Variables
 ### ------------------------------------------
-#
-# 1. Income: Split into binary at the median
-median_income <- median(imputed_adults_full$INDHHIN2, na.rm = TRUE)
-imputed_adults_full <- imputed_adults_full %>%
+# Recode variables
+nhanes_all_imputed <- nhanes_all_imputed %>%
   mutate(
-    income_bin = ifelse(INDHHIN2 < median_income, 1, 2)
-  )
-
-# 2. BMI: Split at median into binary
-median_bmi <- median(imputed_adults_full$BMXBMI, na.rm = TRUE)
-imputed_adults_full <- imputed_adults_full %>%
-  mutate(
-    bmi_bin = ifelse(BMXBMI < median_bmi, 1, 2)
-  )
-
-# 3. Recode binary outcomes (if not already done)
-imputed_adults_full <- imputed_adults_full %>%
-  mutate(
+    # Outcome: Asthma still present? (already filtered for diagnosed asthma in a_03)
     MCQ040_bin = case_when(
-      MCQ035 == 1 ~ 1,
-      MCQ035 == 2 ~ 0,
+      MCQ040 == 1 ~ 1,   # still has asthma
+      MCQ040 == 2 ~ 0,   # does not still have asthma
       TRUE ~ NA_real_
     ),
+    
+    # ER visit due to asthma
     MCQ050_bin = case_when(
-      MCQ050 == 1 ~ 1,
-      MCQ050 == 2 ~ 0,
+      MCQ050 == 1 ~ 1,   # yes
+      MCQ050 == 2 ~ 0,   # no
       TRUE ~ NA_real_
-    )
-  )
-
-# 4. Recode smoking variables (make sure they're binary numeric)
-imputed_adults_full <- imputed_adults_full %>%
-  mutate(
-    SMQ040 = as.numeric(as.character(SMQ040)),  # Already binary in NHANES
-    SMQ876 = as.numeric(as.character(SMQ876)),  # Should be 1 = No, 2 = Yes in NHANES
-    SMQ876_bin = ifelse(SMQ876 == 2, 1, 0)       # 1 = Exposed, 0 = Not exposed
-  )
-
-# 5. Rename exposure variable for clarity
-imputed_adults_full <- imputed_adults_full %>%
-  mutate(
-    gas_stove = ifelse(VTQ241A == 1, 1, 0)  # 1 = used stove, 0 = did not
+    ),
+    
+    # Gas stove use (exposure)
+    VTQ241A_bin = case_when(
+      VTQ241A == 1 ~ 1,  # yes
+      VTQ241A == 2 ~ 0,  # no
+      TRUE ~ NA_real_
+    ),
+    
+    # Secondhand smoke (1 = exposed if someone smokes in the home)
+    SMQ876_bin = case_when(
+      SMQ876 == 2 ~ 1,   # yes, someone smokes in home
+      SMQ876 == 1 ~ 0,   # no one smokes in home
+      TRUE ~ NA_real_
+    ),
+    
+    # Current smoker (SMQ040): leave as-is or binarize if needed
+    SMQ040_bin = case_when(
+      SMQ040 == 1 ~ 1,   # current smoker
+      SMQ040 == 2 ~ 0,   # not a current smoker
+      TRUE ~ NA_real_
+    ),
+    
+    # Binary BMI group (1 = lower half, 2 = upper half)
+    bmi_bin = ifelse(BMXBMI < median(BMXBMI, na.rm = TRUE), 1, 2)
   )
 
 ### ------------------------------------------------
 # Weighting
 ### ------------------------------------------------
-# Step 1: Create 6-year weight (3 NHANES cycles)
-imputed_adults_full <- imputed_adults_full %>%
-  mutate(WTMEC6YR = WTMEC2YR / 3)
+# Step 0: Check missingness in VOC weights
+table(is.na(nhanes_all_imputed$WTSVOC2Y))
+# Expect: FALSE/TRUE counts — TRUE should be filtered out
+#FALSE  TRUE 
+#789   828 
 
-# Step 2: Filter to adults with non-missing weights
-imputed_adults_full_filtered <- imputed_adults_full %>%
-  filter(!is.na(WTMEC6YR))
+# Step 1: Create 6-year VOC weight
+nhanes_all_imputed <- nhanes_all_imputed %>%
+  mutate(WTSVOC6YR = WTSVOC2Y / 3)
 
-# Step 3: Define survey design object
-nhanes_design_imputed <- svydesign(
+# Step 2: Subset to adults aged 18+ with valid VOC weights
+nhanes_adults_voc <- nhanes_all_imputed %>%
+  filter(RIDAGEYR >= 18, !is.na(WTSVOC6YR))
+
+# Step 3: Define survey design
+library(survey)
+nhanes_design_voc <- svydesign(
   ids = ~SDMVPSU,
   strata = ~SDMVSTRA,
-  weights = ~WTMEC6YR,
+  weights = ~WTSVOC6YR,
   nest = TRUE,
-  data = imputed_adults_full_filtered
+  data = nhanes_adults_voc
 )
 
+# Optional: Confirm column names if needed
+colnames(nhanes_adults_voc)
+# [1] "SEQN"        "SDMVPSU"     "SDMVSTRA"    "WTMEC2YR"    "WTSVOC2Y"    "YEAR"       
+#[7] "MCQ040"      "SMQ040"      "SMQ876"      "BMXBMI"      "VTQ241A"     "MCQ050"     
+#[13] "RIDAGEYR"    "RIAGENDR"    "RIDRETH3"    "INDFMPIR"    "HOQ065"      "MCQ040_bin" 
+#[19] "MCQ050_bin"  "VTQ241A_bin" "SMQ876_bin"  "SMQ040_bin"  "bmi_bin"     "WTSVOC6YR" 
+
 ### ------------------------------------------------
-# Log Binomial Regressions (2)
+# Log Binomial Regressions (2)?
+# Got the error message: Error: 
+#no valid set of coefficients has been found: please supply starting values
+
+## Instead: --> Modified Poisson regression
 ### ------------------------------------------------
 #Model #1 - Asthma Model (MCQ040_bin)
-# Subset the design object to only complete cases for variables in the asthma model
-# Subset the design object to complete cases for Asthma model
-asthma_svy <- subset(nhanes_design_imputed,
-                     RIDAGEYR >= 18 &
-                       !is.na(MCQ040_bin) &
-                       !is.na(gas_stove) &
-                       !is.na(RIAGENDR) &
-                       !is.na(income_bin) &
-                       !is.na(HOQ065))
-
-# Fit survey-weighted Poisson regression with robust SEs
-asthma_model_PR <- svyglm(
-  MCQ040_bin ~ gas_stove + RIAGENDR + factor(income_bin) + HOQ065,
-  design = asthma_svy,
+# Modified Poisson regression for asthma attack
+asthma_attack_model <- svyglm(
+  MCQ040_bin ~ VTQ241A_bin + SMQ040_bin + SMQ876_bin + bmi_bin +
+    RIAGENDR + RIDRETH3 + INDFMPIR + HOQ065,
+  design = nhanes_design_voc,
   family = quasipoisson(link = "log")
 )
 
-# Output results
-summary(asthma_model_PR)
-#svyglm(formula = MCQ040_bin ~ gas_stove + RIAGENDR + factor(income_bin) + 
-#HOQ065, design = asthma_svy, family = quasipoisson(link = "log"))
+summary(asthma_attack_model)
+#Call:
+#svyglm(formula = MCQ040_bin ~ VTQ241A_bin + SMQ040_bin + SMQ876_bin + 
+#         bmi_bin + RIAGENDR + RIDRETH3 + INDFMPIR + HOQ065, design = nhanes_design_voc, 
+#       family = quasipoisson(link = "log"))
+
 #Survey design:
-#  subset(nhanes_design_imputed, RIDAGEYR >= 18 & !is.na(MCQ040_bin) & 
-#           !is.na(gas_stove) & !is.na(RIAGENDR) & !is.na(income_bin) & 
-#           !is.na(HOQ065))
+#  svydesign(ids = ~SDMVPSU, strata = ~SDMVSTRA, weights = ~WTSVOC6YR, 
+#            nest = TRUE, data = nhanes_adults_voc)
 
 #Coefficients:
-#  Estimate Std. Error t value Pr(>|t|)    
-#(Intercept)         -1.765159   0.145194 -12.157 3.53e-15 ***
-#  gas_stove            0.271072   0.088434   3.065 0.003838 ** 
-#  RIAGENDR             0.653481   0.060627  10.779 1.55e-13 ***
-#  factor(income_bin)2 -0.290253   0.067403  -4.306 0.000101 ***
-#  HOQ065              -0.004747   0.052574  -0.090 0.928502    
-#---
-#  Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+#  Estimate Std. Error t value Pr(>|t|)
+#(Intercept) -0.77412    0.86324  -0.897    0.436
+#VTQ241A_bin  0.24418    0.37019   0.660    0.557
+#SMQ040_bin  -0.57511    0.28555  -2.014    0.137
+#SMQ876_bin  -0.03306    0.26278  -0.126    0.908
+#bmi_bin      0.20587    0.30324   0.679    0.546
+#RIAGENDR    -0.08475    0.31967  -0.265    0.808
+#RIDRETH3     0.03110    0.13636   0.228    0.834
+#INDFMPIR     0.01482    0.12383   0.120    0.912
+#HOQ065       0.18520    0.33260   0.557    0.616
 
-#(Dispersion parameter for quasipoisson family taken to be 0.5769259)
+#(Dispersion parameter for quasipoisson family taken to be 0.3807055)
 
 #Number of Fisher Scoring iterations: 5
-exp(coef(asthma_model_PR))                # Prevalence Ratios
-#        (Intercept)           gas_stove            RIAGENDR factor(income_bin)2 
-#0.1711596           1.3113699           1.9222201           0.7480745 
-#HOQ065 
-#0.9952647
-exp(confint(asthma_model_PR))            # 95% CI for PR
-#                        2.5 %    97.5 %
-#(Intercept)         0.1276601 0.2294814
-#gas_stove           1.0968877 1.5677913
-#RIAGENDR            1.7007025 2.1725905
-#factor(income_bin)2 0.6528710 0.8571608
-#HOQ065              0.8950080 1.1067519
+
 
 #---------------------------
-
 #Model #2 - Asthma ER Visit Model (MCQ050_bin)
-# Subset design object for ER model
-# Subset the design object to complete cases for ER model
-er_svy <- subset(nhanes_design_imputed,
-                 RIDAGEYR >= 18 &
-                   !is.na(MCQ050_bin) &
-                   !is.na(gas_stove) &
-                   !is.na(RIAGENDR) &
-                   !is.na(income_bin) &
-                   !is.na(HOQ065))
-
-# Fit survey-weighted Poisson regression with robust SEs
-er_model_PR <- svyglm(
-  MCQ050_bin ~ gas_stove + RIAGENDR + factor(income_bin) + HOQ065,
-  design = er_svy,
+# Modified Poisson regression for asthma-related ER visits
+er_visit_model <- svyglm(
+  MCQ050_bin ~ VTQ241A_bin + SMQ040_bin + SMQ876_bin + bmi_bin +
+    RIAGENDR + RIDRETH3 + INDFMPIR + HOQ065,
+  design = nhanes_design_voc,
   family = quasipoisson(link = "log")
 )
 
-# Output results
-summary(er_model_PR)
+summary(er_visit_model)
 #Call:
-#svyglm(formula = MCQ050_bin ~ gas_stove + RIAGENDR + factor(income_bin) + 
-#         HOQ065, design = er_svy, family = quasipoisson(link = "log"))
+#svyglm(formula = MCQ050_bin ~ VTQ241A_bin + SMQ040_bin + SMQ876_bin + 
+#         bmi_bin + RIAGENDR + RIDRETH3 + INDFMPIR + HOQ065, design = nhanes_design_voc, 
+#       family = quasipoisson(link = "log"))
 
 #Survey design:
-#  subset(nhanes_design_imputed, RIDAGEYR >= 18 & !is.na(MCQ050_bin) & 
-#           !is.na(gas_stove) & !is.na(RIAGENDR) & !is.na(income_bin) & 
-#           !is.na(HOQ065))
-
-#Coefficients:
-#  Estimate Std. Error t value Pr(>|t|)    
-#(Intercept)          -5.1342     0.3567 -14.392  < 2e-16 ***
-#  gas_stove             0.8983     0.2947   3.048 0.004021 ** 
-#  RIAGENDR              1.1421     0.1711   6.676 4.73e-08 ***
-#  factor(income_bin)2  -0.3955     0.1851  -2.137 0.038604 *  
-#  HOQ065                0.4482     0.1064   4.214 0.000134 ***
-#  ---
-#  Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
-
-#(Dispersion parameter for quasipoisson family taken to be 0.8708767)
-
-#Number of Fisher Scoring iterations: 6
-exp(coef(er_model_PR))                   # Prevalence Ratios
-#        (Intercept)           gas_stove            RIAGENDR factor(income_bin)2 
-#0.005891917         2.455479874         3.133312830         0.673339065 
-#HOQ065 
-#1.565490395 
-exp(confint(er_model_PR))               # 95% CI for PR
-#                          2.5 %     97.5 %
-#(Intercept)         0.002866609 0.01211002
-#gas_stove           1.354084877 4.45273521
-#RIAGENDR            2.218009109 4.42633407
-#factor(income_bin)2 0.463356531 0.97848086
-#HOQ065              1.262865921 1.94063371
-
-
-# -----------------------------------
-#Making Tables
-# Asthma Model Summary Table
-asthma_results <- tidy(asthma_model_PR, conf.int = TRUE, exponentiate = TRUE) %>%
-  select(term, estimate, conf.low, conf.high, p.value) %>%
-  rename(
-    Predictor = term,
-    PR = estimate,
-    CI_lower = conf.low,
-    CI_upper = conf.high,
-    p_value = p.value
-  )
-
-
-# ER Visit Model Summary Table
-er_results <- tidy(er_model_PR, conf.int = TRUE, exponentiate = TRUE) %>%
-  select(term, estimate, conf.low, conf.high, p.value) %>%
-  rename(
-    Predictor = term,
-    PR = estimate,
-    CI_lower = conf.low,
-    CI_upper = conf.high,
-    p_value = p.value
-  )
-
-#View Tables
-View(asthma_results)
-View(er_results)
-
-
-
-
-
-
-###Outdated stuff below
-------------------------------------------------------
-###Previous attempt pre-imputation and correct weighting below
-#Build survey design on full dataset
-#merges_nhanes_all has 29400 obs
-merged_nhanes_all <- merged_nhanes_all %>%
-  mutate(WTMEC6YR = WTMEC2YR / 3)  
-
-nhanes_design_full <- svydesign(
-  ids = ~SDMVPSU,
-  strata = ~SDMVSTRA,
-  weights = ~WTMEC6YR,
-  nest = TRUE,
-  data = merged_nhanes_all)
-
-#Check Race/ethnicity weighting workds
-# Unweighted
-table(merged_nhanes_all$RIDRETH3)
-#   1    2    3    4    6    7 
-# 5018 3088 9890 6511 3284 1609 
-prop.table(table(merged_nhanes_all$RIDRETH3))
-#         1          2          3          4          6          7 
-#.  0.17068027 0.10503401 0.33639456 0.22146259 0.11170068 0.05472789 
-
-# Weighted
-svytable(~RIDRETH3, design = nhanes_design_full)
-#        1         2         3         4         6         7 
-#.   34186217  21514927 191750868  37799382  17278239  13646361 
-prop.table(svytable(~RIDRETH3, design = nhanes_design_full))
-#         1          2          3          4          6          7 
-#.   0.10812401 0.06804731 0.60646878 0.11955171 0.05464754 0.04316065 
-
-
-
-#Investigate where most missingness occurs
-covariates <- c("SMQ040", "SMQ876", "ECQ020", "BMXBMI", "HOD050", "HOQ065")
-
-subset_1411 %>%
-  select(all_of(covariates)) %>%
-  summarise(across(everything(), ~mean(is.na(.)) * 100, .names = "missing_pct_{.col}"))
-#  missing_pct_SMQ040 missing_pct_SMQ876 missing_pct_ECQ020 missing_pct_BMXBMI missing_pct_HOD050
-#1           53.97776           66.80924                100           1.368691           2.822926
-#missing_pct_HOQ065
-#1           2.822926
-
-
-#Quantify sample loss per variable,
-for (var in covariates) {
-  temp <- subset_1411 %>% filter(!is.na(.data[[var]]))
-  cat("After keeping", var, ":", nrow(temp), "records remain\n")}
-#After keeping SMQ040 : 538 records remain
-#After keeping SMQ876 : 388 records remain
-#After keeping ECQ020 : 0 records remain
-#After keeping BMXBMI : 1153 records remain
-#After keeping HOD050 : 1136 records remain
-#After keeping HOQ065 : 1136 records remain
-
-
-### MAKE SOME CHANGES TO THE DATASET
-#Recode INDFMPIR into 5 income categories:
-# Recode INDHHIN2 (not INDFMPIR!) into 5 poverty categories
-merged_nhanes_all <- merged_nhanes_all %>%
-  mutate(poverty5cat = case_when(
-    INDHHIN2 %in% 1:5 ~ 1,           # $0–24,999
-    INDHHIN2 %in% 6:8 ~ 2,           # $25,000–54,999
-    INDHHIN2 %in% 9:10 ~ 3,          # $55,000–74,999
-    INDHHIN2 == 14 ~ 4,             # $75,000–99,999
-    INDHHIN2 == 15 ~ 5              # $100,000+
-  ))
-
-
-table(merged_nhanes_all$poverty5cat, useNA = "always")
-#1    2    3    4    5 <NA> 
-#  7242 8088 3040 2609 5039 3382 
-
-table(merged_nhanes_all$INDHHIN2, merged_nhanes_all$poverty5cat, useNA = "ifany")
-#1    2    3    4    5 <NA>
-#  1     805    0    0    0    0    0
-#2    1032    0    0    0    0    0
-#3    1575    0    0    0    0    0
-#4    1794    0    0    0    0    0
-#5    2036    0    0    0    0    0
-#6       0 3162    0    0    0    0
-#7       0 2766    0    0    0    0
-#8       0 2160    0    0    0    0
-#9       0    0 1723    0    0    0
-#10      0    0 1317    0    0    0
-#12      0    0    0    0    0  943
-#13      0    0    0    0    0  399
-#14      0    0    0 2609    0    0
-#15      0    0    0    0 5039    0
-#77      0    0    0    0    0  642
-#99      0    0    0    0    0  429
-#<NA>    0    0    0    0    0  969
-
-#Request 2
-###
-# - Logistic Regression
-###
-# Step 1: Subset to adults 18–64
-nhanes_adults <- merged_nhanes_all %>%
-  filter(RIDAGEYR >= 18 & RIDAGEYR < 65)
-
-# Recode MCQ040 to binary (0/1)
-nhanes_adults <- nhanes_adults %>%
-  mutate(
-    MCQ040_bin = case_when(
-      MCQ040 == 1 ~ 1,  # Yes
-      MCQ040 == 2 ~ 0,  # No
-      TRUE ~ NA_real_   # Missing, refused, or don't know
-    )
-  )
-
-# Update survey design with new variable
-nhanes_design <- svydesign(
-  ids = ~SDMVPSU,
-  strata = ~SDMVSTRA,
-  weights = ~WTMEC2YR,
-  data = nhanes_adults,
-  nest = TRUE
-)
-
-#REGRESSION #1
-# Subset to non-missing cases
-asthma_design <- subset(nhanes_design, 
-                        !is.na(VTQ241A) & !is.na(MCQ040_bin) & 
-                          !is.na(RIAGENDR) & !is.na(poverty5cat) & !is.na(HOQ065))
-
-# Rerun logistic regression with binary outcome
-asthma_model <- svyglm(MCQ040_bin ~ VTQ241A + RIAGENDR + factor(poverty5cat) + HOQ065,
-                       design = asthma_design,
-                       family = quasibinomial())
-
-summary(asthma_model)
-#Call:
-#svyglm(formula = MCQ040_bin ~ VTQ241A + RIAGENDR + factor(poverty5cat) + 
- #        HOQ065, design = asthma_design, family = quasibinomial())
-
-#Survey design:
-#  subset(nhanes_design, !is.na(VTQ241A) & !is.na(MCQ040_bin) & 
-#           !is.na(RIAGENDR) & !is.na(poverty5cat) & !is.na(HOQ065))
+#  svydesign(ids = ~SDMVPSU, strata = ~SDMVSTRA, weights = ~WTSVOC6YR, 
+#            nest = TRUE, data = nhanes_adults_voc)
 
 #Coefficients:
 #  Estimate Std. Error t value Pr(>|t|)  
-#(Intercept)          -1.00888    0.77688  -1.299   0.2019  
-#VTQ241A               0.21134    0.25017   0.845   0.4035  
-#RIAGENDR              0.50937    0.29554   1.723   0.0929 .
-#factor(poverty5cat)2  0.02529    0.29468   0.086   0.9321  
-#factor(poverty5cat)3 -0.43127    0.34397  -1.254   0.2176  
-#factor(poverty5cat)4 -0.37345    0.47021  -0.794   0.4320  
-#factor(poverty5cat)5 -0.06144    0.41924  -0.147   0.8843  
-#HOQ065               -0.13282    0.17105  -0.776   0.4423  
+#(Intercept) -3.46207    2.05310  -1.686   0.1903  
+#VTQ241A_bin  0.33392    0.51933   0.643   0.5660  
+#SMQ040_bin  -1.75041    0.39168  -4.469   0.0209 *
+#  SMQ876_bin  -2.65206    0.46874  -5.658   0.0109 *
+#  bmi_bin      0.19494    0.43222   0.451   0.6826  
+#RIAGENDR     0.58387    0.56306   1.037   0.3760  
+#RIDRETH3     0.23210    0.22140   1.048   0.3715  
+#INDFMPIR     0.01086    0.14994   0.072   0.9468  
+#HOQ065       0.99691    0.59874   1.665   0.1945  
 #---
 #  Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
-#(Dispersion parameter for quasibinomial family taken to be 1.001842)
-#Number of Fisher Scoring iterations: 4
 
-exp(coef(asthma_model))
-#         (Intercept)              VTQ241A             RIAGENDR 
-#0.3646266            1.2353308            1.6642404 
-#factor(poverty5cat)2 factor(poverty5cat)3 factor(poverty5cat)4 
-#1.0256136            0.6496816            0.6883583 
-#factor(poverty5cat)5               HOQ065 
-#0.9404127            0.8756269 
+#(Dispersion parameter for quasipoisson family taken to be 0.3319075)
 
-   
-#REGRESSION #2
-# Recode MCQ050 to binary (0/1)
-nhanes_adults <- nhanes_adults %>%
-  mutate(
-    MCQ050_bin = case_when(
-      MCQ050 == 1 ~ 1,   # Yes - ER visit
-      MCQ050 == 2 ~ 0,   # No
-      TRUE ~ NA_real_    # Missing, refused, don't know
-    )
-  )
+#Number of Fisher Scoring iterations: 6
 
-# Update survey design again (if needed)
-nhanes_design <- svydesign(
-  ids = ~SDMVPSU,
-  strata = ~SDMVSTRA,
-  weights = ~WTMEC2YR,
-  data = nhanes_adults,
-  nest = TRUE
-)
+###-----------------------------------
+# Function to exponentiate estimates for risk ratios
+exp_model_table <- function(model, model_label) {
+  tidy(model, conf.int = TRUE, exponentiate = TRUE) %>%
+    mutate(term = gsub("_bin", "", term)) %>%
+    select(term, estimate, conf.low, conf.high, p.value) %>%
+    rename(
+      `Variable` = term,
+      `Risk Ratio` = estimate,
+      `95% CI Lower` = conf.low,
+      `95% CI Upper` = conf.high,
+      `p-value` = p.value
+    ) %>%
+    gt::gt() %>%
+    gt::tab_header(
+      title = paste0(model_label, " – Risk Ratios from Modified Poisson Regression")
+    ) %>%
+    gt::fmt_number(columns = 2:5, decimals = 2)
+}
 
-# Subset to non-missing cases for ER model
-er_design <- subset(nhanes_design,
-                    !is.na(VTQ241A) & !is.na(MCQ050_bin) &
-                      !is.na(RIAGENDR) & !is.na(poverty5cat) & !is.na(HOQ065))
-
-# Run logistic regression for ER visit
-er_model <- svyglm(MCQ050_bin ~ VTQ241A + RIAGENDR + factor(poverty5cat) + HOQ065,
-                   design = er_design,
-                   family = quasibinomial())
-
-summary(er_model)
-#Call:
-#svyglm(formula = MCQ050_bin ~ VTQ241A + RIAGENDR + factor(poverty5cat) + 
-#         HOQ065, design = er_design, family = quasibinomial())
-
-#Survey design:
-#  subset(nhanes_design, !is.na(VTQ241A) & !is.na(MCQ050_bin) & 
-#           !is.na(RIAGENDR) & !is.na(poverty5cat) & !is.na(HOQ065))
-
-#Coefficients:
-#  Estimate Std. Error t value Pr(>|t|)    
-#(Intercept)           -3.9697     0.9077  -4.374 9.18e-05 ***
-#  VTQ241A               -0.1072     0.3613  -0.297  0.76829    
-#RIAGENDR               1.1242     0.3478   3.233  0.00254 ** 
-#  factor(poverty5cat)2  -0.4043     0.3460  -1.169  0.24988    
-#factor(poverty5cat)3  -0.1367     0.4079  -0.335  0.73941    
-#factor(poverty5cat)4  -0.2258     0.6524  -0.346  0.73119    
-#factor(poverty5cat)5  -0.6022     0.5636  -1.068  0.29208    
-#HOQ065                 0.4841     0.2872   1.686  0.10007    
-#---
-#  Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
-#(Dispersion parameter for quasibinomial family taken to be 0.9460316)
-#Number of Fisher Scoring iterations: 5
-
-exp(coef(er_model))
-#         (Intercept)              VTQ241A             RIAGENDR 
-#0.01887865           0.89834623           3.07773503 
-#factor(poverty5cat)2 factor(poverty5cat)3 factor(poverty5cat)4 
-#0.66746751           0.87224932           0.79789654 
-#factor(poverty5cat)5               HOQ065 
-#0.54763132           1.62278151 
-
-#Number of records
-# For overall NHANES adults subset
-nrow(nhanes_adults)
-#13777
-
-#Sample size used in regression
-# For asthma regression model
-nrow(asthma_design$variables)
-#522
-
-# For ER visit regression model
-nrow(er_design$variables)
-#522
-
-# For asthma model (weighted total)
-sum(weights(asthma_design))
-#[1] 23807917
-
-# For ER model (weighted total)
-sum(weights(er_design))
-#23807917
-
-#Confidence Intervals
-#Asthma Model
-confint(asthma_model)                     # 95% CI on log-odds (β coefficients)
-#                           2.5 %    97.5 %
-#(Intercept)          -2.58159125 0.5638281
-#VTQ241A              -0.29511084 0.7177885
-#RIAGENDR             -0.08892844 1.1076661
-#factor(poverty5cat)2 -0.57125406 0.6218362
-#factor(poverty5cat)3 -1.12760819 0.2650624
-#factor(poverty5cat)4 -1.32534386 0.5784522
-#factor(poverty5cat)5 -0.91015037 0.7872774
-#HOQ065               -0.47908770 0.2134572
-exp(confint(asthma_model))                # 95% CI on odds ratios
-#                          2.5 %   97.5 %
-#(Intercept)          0.07565352 1.757387
-#VTQ241A              0.74444907 2.049895
-#RIAGENDR             0.91491104 3.027285
-#factor(poverty5cat)2 0.56481668 1.862344
-#factor(poverty5cat)3 0.32380681 1.303512
-#factor(poverty5cat)4 0.26571158 1.783276
-#factor(poverty5cat)5 0.40246370 2.197406
-#HOQ065               0.61934817 1.237951
-
-#
-confint(er_model)
-#                           2.5 %     97.5 %
-#(Intercept)          -5.80717613 -2.1322706
-#VTQ241A              -0.83855679  0.6241573
-#RIAGENDR              0.42018391  1.8282040
-#factor(poverty5cat)2 -1.10464029  0.2961112
-#factor(poverty5cat)3 -0.96244981  0.6890899
-#factor(poverty5cat)4 -1.54646398  1.0949113
-#factor(poverty5cat)5 -1.74311264  0.5388066
-#HOQ065               -0.09731118  1.0655945
-exp(confint(er_model))
-#                           2.5 %    97.5 %
-#(Intercept)          0.003005906 0.1185678
-#VTQ241A              0.432334024 1.8666723
-#RIAGENDR             1.522241491 6.2227005
-#factor(poverty5cat)2 0.331330044 1.3446196
-#factor(poverty5cat)3 0.381956019 1.9919018
-#factor(poverty5cat)4 0.212999816 2.9889175
-#factor(poverty5cat)5 0.174974918 1.7139603
-#HOQ065               0.907273639 2.9025640
-
-asthma_results <- cbind(
-  OR = exp(coef(asthma_model)),
-  confint(exp(asthma_model))
-)
-
-round(asthma_results, 3)
-
-
-#Asthma
-# Get odds ratios (exponentiated coefficients)
-ORs <- exp(coef(asthma_model))
-
-# Get 95% CI for the coefficients (on log-odds scale), then exponentiate to get OR CIs
-OR_CIs <- exp(confint(asthma_model))
-
-# Combine into one table
-asthma_results <- cbind(OR = ORs, OR_CIs)
-
-# Optional: Round for readability
-round(asthma_results, 3)
-
-#ER
-# Get odds ratios
-ORs_er <- exp(coef(er_model))
-
-# Get 95% CI and exponentiate
-OR_CIs_er <- exp(confint(er_model))
-
-# Combine into a results table
-er_results <- cbind(OR = ORs_er, OR_CIs_er)
-
-# Optional: Round for clean output
-round(er_results, 3)
+# Create tables
+exp_model_table(asthma_attack_model, "Asthma Attack Model")
+exp_model_table(er_visit_model, "ER Visit Model")
