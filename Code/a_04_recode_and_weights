@@ -20,52 +20,52 @@ library(gtsummary)
 
 # Load imputed dataset (from a_03)
 nhanes_all_imputed <- readRDS("imputed_adults_asthma_single.rds")
-#1617 obvs x 17 variables
+#1617 obvs x 312 variables
+
+colnames(nhanes_all_imputed)
 
 ### ------------------------------------------
 # Re-code Variables
 ### ------------------------------------------
-# Recode variables
 nhanes_all_imputed <- nhanes_all_imputed %>%
   mutate(
     # Outcome: Asthma still present? (already filtered for diagnosed asthma in a_03)
     MCQ040_bin = case_when(
-      MCQ040 == 1 ~ 1,   # still has asthma
-      MCQ040 == 2 ~ 0,   # does not still have asthma
+      MCQ040 == 1 ~ 1,
+      MCQ040 == 2 ~ 0,
       TRUE ~ NA_real_
     ),
     
     # ER visit due to asthma
     MCQ050_bin = case_when(
-      MCQ050 == 1 ~ 1,   # yes
-      MCQ050 == 2 ~ 0,   # no
+      MCQ050 == 1 ~ 1,
+      MCQ050 == 2 ~ 0,
       TRUE ~ NA_real_
     ),
     
     # Gas stove use (exposure)
     VTQ241A_bin = case_when(
-      VTQ241A == 1 ~ 1,  # yes
-      VTQ241A == 2 ~ 0,  # no
+      VTQ241A == 1 ~ 1,
+      VTQ241A == 2 ~ 0,
       TRUE ~ NA_real_
     ),
     
-    # Secondhand smoke (1 = exposed if someone smokes in the home)
-    SMQ876_bin = case_when(
-      SMQ876 == 2 ~ 1,   # yes, someone smokes in home
-      SMQ876 == 1 ~ 0,   # no one smokes in home
-      TRUE ~ NA_real_
+    # PIR-based income category: Low, Medium, High
+    income_cat = case_when(
+      INDFMPIR < 1.8 ~ "Low",
+      INDFMPIR >= 1.8 & INDFMPIR < 3.9 ~ "Medium",
+      INDFMPIR >= 3.9 & INDFMPIR <= 5 ~ "High",
+      TRUE ~ NA_character_
     ),
     
-    # Current smoker (SMQ040): leave as-is or binarize if needed
-    SMQ040_bin = case_when(
-      SMQ040 == 1 ~ 1,   # current smoker
-      SMQ040 == 2 ~ 0,   # not a current smoker
-      TRUE ~ NA_real_
-    ),
-    
-    # Binary BMI group (1 = lower half, 2 = upper half)
-    bmi_bin = ifelse(BMXBMI < median(BMXBMI, na.rm = TRUE), 1, 2)
+    #Housing (owned vs rented)
+    housing_status = case_when(
+      HOQ065 == 1 ~ "Owned",
+      HOQ065 == 2 ~ "Rented",
+      TRUE ~ NA_character_
+    )
   )
+
 
 ### ------------------------------------------------
 # Weighting
@@ -94,13 +94,6 @@ nhanes_design_voc <- svydesign(
   data = nhanes_adults_voc
 )
 
-# Optional: Confirm column names if needed
-colnames(nhanes_adults_voc)
-# [1] "SEQN"        "SDMVPSU"     "SDMVSTRA"    "WTMEC2YR"    "WTSVOC2Y"    "YEAR"       
-#[7] "MCQ040"      "SMQ040"      "SMQ876"      "BMXBMI"      "VTQ241A"     "MCQ050"     
-#[13] "RIDAGEYR"    "RIAGENDR"    "RIDRETH3"    "INDFMPIR"    "HOQ065"      "MCQ040_bin" 
-#[19] "MCQ050_bin"  "VTQ241A_bin" "SMQ876_bin"  "SMQ040_bin"  "bmi_bin"     "WTSVOC6YR" 
-
 ### ------------------------------------------------
 # Log Binomial Regressions (2)?
 # Got the error message: Error: 
@@ -111,35 +104,32 @@ colnames(nhanes_adults_voc)
 #Model #1 - Asthma Model (MCQ040_bin)
 # Modified Poisson regression for asthma attack
 asthma_attack_model <- svyglm(
-  MCQ040_bin ~ VTQ241A_bin + SMQ040_bin + SMQ876_bin + bmi_bin +
-    RIAGENDR + RIDRETH3 + INDFMPIR + HOQ065,
+  MCQ040_bin ~ VTQ241A_bin + RIAGENDR + income_cat + housing_status,
   design = nhanes_design_voc,
   family = quasipoisson(link = "log")
 )
 
 summary(asthma_attack_model)
 #Call:
-#svyglm(formula = MCQ040_bin ~ VTQ241A_bin + SMQ040_bin + SMQ876_bin + 
-#         bmi_bin + RIAGENDR + RIDRETH3 + INDFMPIR + HOQ065, design = nhanes_design_voc, 
-#       family = quasipoisson(link = "log"))
+#svyglm(formula = MCQ040_bin ~ VTQ241A_bin + RIAGENDR + income_cat + 
+#         housing_status, design = nhanes_design_voc, family = quasipoisson(link = "log"))
 
 #Survey design:
 #  svydesign(ids = ~SDMVPSU, strata = ~SDMVSTRA, weights = ~WTSVOC6YR, 
 #            nest = TRUE, data = nhanes_adults_voc)
 
 #Coefficients:
-#  Estimate Std. Error t value Pr(>|t|)
-#(Intercept) -0.77412    0.86324  -0.897    0.436
-#VTQ241A_bin  0.24418    0.37019   0.660    0.557
-#SMQ040_bin  -0.57511    0.28555  -2.014    0.137
-#SMQ876_bin  -0.03306    0.26278  -0.126    0.908
-#bmi_bin      0.20587    0.30324   0.679    0.546
-#RIAGENDR    -0.08475    0.31967  -0.265    0.808
-#RIDRETH3     0.03110    0.13636   0.228    0.834
-#INDFMPIR     0.01482    0.12383   0.120    0.912
-#HOQ065       0.18520    0.33260   0.557    0.616
+#  Estimate Std. Error t value Pr(>|t|)    
+#(Intercept)          -1.18423    0.27118  -4.367 8.67e-05 ***
+#  VTQ241A_bin          -0.05277    0.11422  -0.462    0.647    
+#RIAGENDR              0.19407    0.15880   1.222    0.229    
+#income_catLow         0.13918    0.14756   0.943    0.351    
+#income_catMedium      0.10595    0.14038   0.755    0.455    
+#housing_statusRented -0.06858    0.10626  -0.645    0.522    
+#---
+#  Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
-#(Dispersion parameter for quasipoisson family taken to be 0.3807055)
+#(Dispersion parameter for quasipoisson family taken to be 0.5939926)
 
 #Number of Fisher Scoring iterations: 5
 
@@ -148,37 +138,32 @@ summary(asthma_attack_model)
 #Model #2 - Asthma ER Visit Model (MCQ050_bin)
 # Modified Poisson regression for asthma-related ER visits
 er_visit_model <- svyglm(
-  MCQ050_bin ~ VTQ241A_bin + SMQ040_bin + SMQ876_bin + bmi_bin +
-    RIAGENDR + RIDRETH3 + INDFMPIR + HOQ065,
+  MCQ050_bin ~ VTQ241A_bin + RIAGENDR + income_cat + housing_status,
   design = nhanes_design_voc,
   family = quasipoisson(link = "log")
 )
 
 summary(er_visit_model)
 #Call:
-#svyglm(formula = MCQ050_bin ~ VTQ241A_bin + SMQ040_bin + SMQ876_bin + 
-#         bmi_bin + RIAGENDR + RIDRETH3 + INDFMPIR + HOQ065, design = nhanes_design_voc, 
-#       family = quasipoisson(link = "log"))
+#svyglm(formula = MCQ050_bin ~ VTQ241A_bin + RIAGENDR + income_cat + 
+#         housing_status, design = nhanes_design_voc, family = quasipoisson(link = "log"))
 
 #Survey design:
 #  svydesign(ids = ~SDMVPSU, strata = ~SDMVSTRA, weights = ~WTSVOC6YR, 
 #            nest = TRUE, data = nhanes_adults_voc)
 
 #Coefficients:
-#  Estimate Std. Error t value Pr(>|t|)  
-#(Intercept) -3.46207    2.05310  -1.686   0.1903  
-#VTQ241A_bin  0.33392    0.51933   0.643   0.5660  
-#SMQ040_bin  -1.75041    0.39168  -4.469   0.0209 *
-#  SMQ876_bin  -2.65206    0.46874  -5.658   0.0109 *
-#  bmi_bin      0.19494    0.43222   0.451   0.6826  
-#RIAGENDR     0.58387    0.56306   1.037   0.3760  
-#RIDRETH3     0.23210    0.22140   1.048   0.3715  
-#INDFMPIR     0.01086    0.14994   0.072   0.9468  
-#HOQ065       0.99691    0.59874   1.665   0.1945  
+#  Estimate Std. Error t value Pr(>|t|)    
+#(Intercept)          -4.24002    0.49230  -8.613 1.19e-10 ***
+#  VTQ241A_bin           0.04591    0.29123   0.158  0.87552    
+#RIAGENDR              0.85462    0.25754   3.318  0.00194 ** 
+#  income_catLow         0.71885    0.35661   2.016  0.05057 .  
+#income_catMedium      0.61055    0.39456   1.547  0.12963    
+#housing_statusRented  0.42427    0.24447   1.736  0.09035 .  
 #---
 #  Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
-#(Dispersion parameter for quasipoisson family taken to be 0.3319075)
+#(Dispersion parameter for quasipoisson family taken to be 0.8831388)
 
 #Number of Fisher Scoring iterations: 6
 
@@ -205,3 +190,101 @@ exp_model_table <- function(model, model_label) {
 # Create tables
 exp_model_table(asthma_attack_model, "Asthma Attack Model")
 exp_model_table(er_visit_model, "ER Visit Model")
+
+
+
+
+
+###TEST TEST TEST TEST
+er_SMOKING_visit_model <- svyglm(
+  MCQ050_bin ~ SMQ040 + RIAGENDR + income_cat + housing_status,
+  design = nhanes_design_voc,
+  family = quasipoisson(link = "log")
+)
+
+summary(er_SMOKING_visit_model)
+#Call:
+#svyglm(formula = MCQ050_bin ~ SMQ040 + RIAGENDR + income_cat + 
+#         housing_status, design = nhanes_design_voc, family = quasipoisson(link = "log"))
+
+#Survey design:
+#  svydesign(ids = ~SDMVPSU, strata = ~SDMVSTRA, weights = ~WTSVOC6YR, 
+#            nest = TRUE, data = nhanes_adults_voc)
+
+#Coefficients:
+#  Estimate Std. Error t value Pr(>|t|)    
+#(Intercept)          -2.682909   0.645097  -4.159 0.000197 ***
+#  SMQ040                0.006096   0.191570   0.032 0.974796    
+#RIAGENDR              0.353458   0.282693   1.250 0.219477    
+#income_catLow         0.112929   0.454494   0.248 0.805221    
+#income_catMedium     -0.395142   0.542758  -0.728 0.471441    
+#housing_statusRented  0.347746   0.351255   0.990 0.328965    
+#---
+#  Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+#(Dispersion parameter for quasipoisson family taken to be 0.826088)
+
+#Number of Fisher Scoring iterations: 6
+
+exp_model_table(er_SMOKING_visit_model, "ER Visit Model + Smoking")
+
+
+
+
+
+### ------------------------------------------------
+### ------------------------------------------------
+### ------------------------------------------------
+####OLD LOG BINOMIAL REGRESSION
+# Log Binomial Regressions (2)Add commentMore actions
+### ------------------------------------------------
+#Model #1 - Asthma Model (MCQ040_bin)
+# Subset the design object to only complete cases for variables in the asthma model
+# Subset the design object to complete cases for Asthma model
+asthma_svy <- subset(nhanes_design_imputed,
+                     RIDAGEYR >= 18 &
+                       !is.na(MCQ040_bin) &
+                       !is.na(gas_stove) &
+                       !is.na(RIAGENDR) &
+                       !is.na(income_bin) &
+                       !is.na(HOQ065))
+
+# Fit survey-weighted Poisson regression with robust SEs
+# Subset the design object to only complete cases for variables in the asthma modelAdd commentMore actions
+# Subset the design object to complete cases for Asthma model
+#asthma_svy <- subset(nhanes_design_imputed,
+                     RIDAGEYR >= 18 &
+                       !is.na(MCQ040_bin) &
+                       !is.na(gas_stove) &
+                       !is.na(RIAGENDR) &
+                       !is.na(income_bin) &
+                       !is.na(HOQ065))
+
+## Fit survey-weighted Poisson regression with robust SEsAdd commentMore actions
+asthma_model_PR <- svyglm(
+  MCQ040_bin ~ gas_stove + RIAGENDR + factor(income_bin) + HOQ065,
+  design = asthma_svy,
+  family = quasipoisson(link = "log")
+)
+
+
+
+###
+#Model #2 - Asthma ER Visit Model (MCQ050_bin)Add commentMore actions
+# Subset design object for ER model
+# Subset the design object to complete cases for ER model
+er_svy <- subset(nhanes_design_imputed,
+                 RIDAGEYR >= 18 &
+                   !is.na(MCQ050_bin) &
+                   !is.na(gas_stove) &
+                   !is.na(RIAGENDR) &
+                   !is.na(income_bin) &
+                   !is.na(HOQ065))
+
+# Fit survey-weighted Poisson regression with robust SEs
+er_model_PR <- svyglm(
+  MCQ050_bin ~ gas_stove + RIAGENDR + factor(income_bin) + HOQ065,
+  design = er_svy,
+  family = quasipoisson(link = "log")
+)
+Add comment
