@@ -1,21 +1,20 @@
 #a_03_imputation
-#I used m=1 (single imputation instead of m=5 and then pooling the results)
 
 ### ------------------------------------------------------------------------
-# a_03_imputation.R - MICE-based multiple imputation (for adults 18+ w/ asthma)
+# a_03_imputation.R (for adults 18+ w/ asthma)
 ### ------------------------------------------------------------------------
 
 # Load packages
 library(dplyr)
-library(mice)
 library(tidyr)
+install.packages("missForest")
+library(missForest)
+library(tibble)
 
 ### -------------------------------------------
 # Step 1: Define Variables for Imputation
 ### -------------------------------------------
 vars_to_impute_adults <- c(
-  "VTQ241A",   # Gas stove use
-  "MCQ050",    # ER visit
   "RIDAGEYR",  # Age
   "RIAGENDR",  # Sex
   "RIDRETH3",  # Race/ethnicity
@@ -24,7 +23,7 @@ vars_to_impute_adults <- c(
 )
 
 id_vars <- c("SEQN", "SDMVPSU", "SDMVSTRA", "WTMEC2YR", "WTSVOC2Y", "YEAR")
-vars_to_keep_but_not_impute <- c("MCQ040", "SMQ040", "SMQ876", "BMXBMI")
+vars_to_keep_but_not_impute <- c("MCQ040", "MCQ050", "VTQ241A")
 
 ### -------------------------------------------
 # Step 2: Filter to Adults (18+) WITH Asthma Diagnosis
@@ -50,12 +49,12 @@ non_binary_summary <- subset_adults_for_impute %>%
 
 # View results
 print(missing_summary)
-#missing_SEQN missing_SDMVPSU missing_SDMVSTRA missing_WTMEC2YR missing_WTSVOC2Y missing_YEAR
-#1            0               0                0                0              828            0
-#missing_VTQ241A missing_MCQ050 missing_RIDAGEYR missing_RIAGENDR missing_RIDRETH3
-#1             907              0                0                0                0
-#missing_INDFMPIR missing_HOQ065 missing_MCQ040 missing_SMQ040 missing_SMQ876 missing_BMXBMI
-#1              157             51              0            843           1116             84
+#missing_SEQN missing_SDMVPSU missing_SDMVSTRA missing_WTMEC2YR missing_WTSVOC2Y
+#            0               0                0                0              828
+#missing_YEAR missing_RIDAGEYR missing_RIAGENDR missing_RIDRETH3 missing_INDFMPIR
+#            0                0                0                0              157
+#missing_HOQ065 missing_MCQ040 missing_MCQ050 missing_VTQ241A
+#             51              0              0             907
 
 print(non_binary_summary)
 #  VTQ241A_non_binary MCQ050_non_binary
@@ -68,36 +67,53 @@ subset_adults_for_impute <- subset_adults_for_impute %>%
     MCQ050  = ifelse(MCQ050  %in% c(1, 2), MCQ050, NA)
   )
 
-
 ### -------------------------------------------
-# Step 3: Run MICE Multiple Imputation
+# Step 3: Run the missForest imputation
 ### -------------------------------------------
-# Set m = 1 for single imputation (like missForest)
-set.seed(123)
-imp_mice <- mice(subset_adults_for_impute[, vars_to_impute_adults],
-                 m = 1, method = "pmm", seed = 123)
+# missForest imputation
+rownames(subset_adults_for_impute) <- subset_adults_for_impute$SEQN
+data_to_impute <- subset_adults_for_impute[, vars_to_impute_adults]
+imputation_model_rf <- missForest(data_to_impute,verbose = T) # verbose will print out the errors and show you where the imputation stops
+#Got the error message:
+#Warning messages:
+#1: In randomForest.default(x = obsX, y = obsY, ntree = ntree, mtry = mtry,  :
+#The response has five or fewer unique values.  Are you sure you want to do regression?
+#2: In randomForest.default(x = obsX, y = obsY, ntree = ntree, mtry = mtry,  :
+#The response has five or fewer unique values.  Are you sure you want to do regression?
+#3: In randomForest.default(x = obsX, y = obsY, ntree = ntree, mtry = mtry,  :
+#The response has five or fewer unique values.  Are you sure you want to do regression?
+#4: In randomForest.default(x = obsX, y = obsY, ntree = ntree, mtry = mtry,  :
+#The response has five or fewer unique values.  Are you sure you want to do regression?
 
-# Extract completed (imputed) dataset
-imputed_single <- complete(imp_mice, 1)
+imputed_df <- imputation_model_rf$ximp
+imputed_df <- rownames_to_column(imputed_df, var = "SEQN")
 
-# Combine with ID variables
-#Also bring back variables I did not impute
-nhanes_all_imputed <- bind_cols(
-  subset_adults_for_impute[, c(id_vars, vars_to_keep_but_not_impute)],
-  imputed_single
-)
+#Double-checking that imputation worked
+summary(imputed_df$INDFMPIR)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#0.000   0.970   1.740   2.176   3.139   5.000 
 
+summary(imputed_df$VTQ241A)
+#Length  Class   Mode 
+#0   NULL   NULL 
+
+summary(imputed_df$HOQ065)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#1.000   1.000   1.000   1.513   2.000   9.000 
+
+colSums(is.na(imputed_df[, vars_to_impute_adults]))
+#RIDAGEYR RIAGENDR RIDRETH3 INDFMPIR   HOQ065 
+#0        0        0        0        0 
+
+# bring back the rest of the variables
+other_variables <- merged_nhanes_all %>%
+  select(-vars_to_impute_adults)
+
+colnames(subset_adults_for_impute)
+# [1] "SEQN"     "SDMVPSU"  "SDMVSTRA" "WTMEC2YR" "WTSVOC2Y" "YEAR"     "RIDAGEYR"
+#[8] "RIAGENDR" "RIDRETH3" "INDFMPIR" "HOQ065"   "MCQ040"   "MCQ050"   "VTQ241A" 
+
+nhanes_all_imputed <- merge(other_variables, imputed_df, by = "SEQN")
 
 # Save final single-imputation dataset
 saveRDS(nhanes_all_imputed, "imputed_adults_asthma_single.rds")
-
-#Check to make sure that imputation worked:
-# Check summary of imputed variables
-summary(nhanes_all_imputed$INDFMPIR)
-summary(nhanes_all_imputed$VTQ241A)
-summary(nhanes_all_imputed$HOQ065)
-
-# Check for any remaining NAs
-colSums(is.na(nhanes_all_imputed[, vars_to_impute_adults]))
-# VTQ241A   MCQ050 RIDAGEYR RIAGENDR RIDRETH3 INDFMPIR   HOQ065 
-#0        0        0        0        0        0        0
