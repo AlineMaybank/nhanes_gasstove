@@ -81,10 +81,12 @@ imp_mice <- mice(subset_adults_for_impute[, vars_to_impute_adults],
 imputed_single <- complete(imp_mice, 1)
 
 # Combine with ID variables
+#Also bring back variables I did not impute
 nhanes_all_imputed <- bind_cols(
-  subset_adults_for_impute[, id_vars],
+  subset_adults_for_impute[, c(id_vars, vars_to_keep_but_not_impute)],
   imputed_single
 )
+
 
 # Save final single-imputation dataset
 saveRDS(nhanes_all_imputed, "imputed_adults_asthma_single.rds")
