@@ -1,4 +1,5 @@
 #a_03_imputation
+#I used m=1 (single imputation instead of m=5 and then pooling the results)
 
 ### ------------------------------------------------------------------------
 # a_03_imputation.R - MICE-based multiple imputation (for adults 18+ w/ asthma)
@@ -69,34 +70,30 @@ subset_adults_for_impute <- subset_adults_for_impute %>%
 ### -------------------------------------------
 # Step 3: Run MICE Multiple Imputation
 ### -------------------------------------------
-# Specify number of imputations (can increase from 5 if desired)
+# Set m = 1 for single imputation (like missForest)
 set.seed(123)
-imp_mice <- mice(subset_adults_for_impute[, vars_to_impute_adults], 
-                 m = 5, method = "pmm", seed = 123)
+imp_mice <- mice(subset_adults_for_impute[, vars_to_impute_adults],
+                 m = 1, method = "pmm", seed = 123)
 
+# Extract completed (imputed) dataset
+imputed_single <- complete(imp_mice, 1)
 
-### -------------------------------------------
-# Step 4: Extract Long-format Imputed Data (with identifiers added back)
-### -------------------------------------------
-# Extract imputed datasets in long format
-imputed_long <- complete(imp_mice, "long", include = TRUE)
-
-# Bind back IDs using row order match (mice preserves row order)
-id_df <- subset_adults_for_impute[, id_vars]
-imputed_long <- bind_cols(
-  imputed_long %>% select(.imp, .id),
-  id_df[imputed_long$.id, ],  # match IDs
-  imputed_long %>% select(-.imp, -.id)
+# Combine with ID variables
+nhanes_all_imputed <- bind_cols(
+  subset_adults_for_impute[, id_vars],
+  imputed_single
 )
 
-#Save imputed_long as RDS for future use
-saveRDS(imputed_long, "imputed_adults_asthma.rds")
+# Save final single-imputation dataset
+saveRDS(nhanes_all_imputed, "imputed_adults_asthma_single.rds")
 
+#Check to make sure that imputation worked:
+# Check summary of imputed variables
+summary(nhanes_all_imputed$INDFMPIR)
+summary(nhanes_all_imputed$VTQ241A)
+summary(nhanes_all_imputed$HOQ065)
 
-### -------------------------------------------
-
-# Script Summary:
-# Done: imputed_long contains 5 imputations (variable .imp = 1 to 5)
-# Each row is one imputed observation (stacked format)
-# Use `mice::complete(imp_mice, 1)` to extract single imputation (wide format)
-### -------------------------------------------
+# Check for any remaining NAs
+colSums(is.na(nhanes_all_imputed[, vars_to_impute_adults]))
+# VTQ241A   MCQ050 RIDAGEYR RIAGENDR RIDRETH3 INDFMPIR   HOQ065 
+#0        0        0        0        0        0        0
