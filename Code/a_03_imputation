@@ -24,13 +24,15 @@ vars_to_impute_adults <- c(
 )
 
 id_vars <- c("SEQN", "SDMVPSU", "SDMVSTRA", "WTMEC2YR", "WTSVOC2Y", "YEAR")
+vars_to_keep_but_not_impute <- c("MCQ040", "SMQ040", "SMQ876", "BMXBMI")
 
 ### -------------------------------------------
 # Step 2: Filter to Adults (18+) WITH Asthma Diagnosis
 ### -------------------------------------------
 subset_adults_for_impute <- merged_nhanes_all %>%
-  filter(RIDAGEYR >= 18, MCQ035 == 1) %>%  # keep only adults with asthma
-  select(all_of(c(id_vars, vars_to_impute_adults)))
+  filter(RIDAGEYR >= 18, MCQ035 == 1) %>%
+  select(all_of(c(id_vars, vars_to_impute_adults, vars_to_keep_but_not_impute)))
+
 
 #Check-point:
 #Diagnose Missingness and Non-Binary Values
@@ -48,12 +50,12 @@ non_binary_summary <- subset_adults_for_impute %>%
 
 # View results
 print(missing_summary)
-#  missing_SEQN missing_SDMVPSU missing_SDMVSTRA missing_WTMEC2YR missing_WTSVOC2Y missing_YEAR
-#            0               0                0                0              828            0
+#missing_SEQN missing_SDMVPSU missing_SDMVSTRA missing_WTMEC2YR missing_WTSVOC2Y missing_YEAR
+#1            0               0                0                0              828            0
 #missing_VTQ241A missing_MCQ050 missing_RIDAGEYR missing_RIAGENDR missing_RIDRETH3
-#             907              0                0                0                0
-#missing_INDFMPIR missing_HOQ065
-#              157             51
+#1             907              0                0                0                0
+#missing_INDFMPIR missing_HOQ065 missing_MCQ040 missing_SMQ040 missing_SMQ876 missing_BMXBMI
+#1              157             51              0            843           1116             84
 
 print(non_binary_summary)
 #  VTQ241A_non_binary MCQ050_non_binary
